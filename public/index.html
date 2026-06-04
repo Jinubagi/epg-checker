@@ -71,6 +71,23 @@ tr:hover td { background: #f9fafb; }
 .placeholder { color: #9ca3af; font-size: 13px; padding: 30px; text-align: center; }
 .loading { color: #7c3aed; font-size: 13px; padding: 20px; text-align: center; }
 .notice { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #78350f; margin-bottom: 10px; }
+
+/* 매핑 섹션 */
+.map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.map-section h3 { font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 8px; }
+.map-section p.desc { font-size: 11px; color: #9ca3af; margin-bottom: 8px; }
+.map-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+.map-table th { background: #f3f4f6; padding: 6px 8px; text-align: left; font-size: 11px; color: #6b7280; font-weight: 700; border-bottom: 1px solid #e5e7eb; }
+.map-table td { padding: 5px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+.map-table input { border: 1px solid #d1d5db; border-radius: 4px; padding: 4px 7px; font-size: 12px; width: 100%; font-family: inherit; }
+.map-table input:focus { outline: none; border-color: #1e2d4d; }
+.btn-del { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 14px; padding: 2px 6px; }
+.btn-del:hover { background: #fee2e2; border-radius: 4px; }
+.btn-add { padding: 5px 12px; border: 1px dashed #9ca3af; border-radius: 6px; background: white; cursor: pointer; font-size: 12px; color: #6b7280; font-family: inherit; }
+.btn-add:hover { border-color: #1e2d4d; color: #1e2d4d; background: #f0f2f5; }
+.collapse-toggle { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+.collapse-toggle .arrow { font-size: 11px; color: #9ca3af; transition: transform .2s; }
+.collapse-toggle.open .arrow { transform: rotate(180deg); }
 </style>
 </head>
 <body>
@@ -109,6 +126,41 @@ tr:hover td { background: #f9fafb; }
     </div>
   </div>
 
+  <!-- 매핑 설정 -->
+  <div class="card">
+    <div class="card-title collapse-toggle" id="mapToggle" onclick="toggleMap()">
+      ⚙️ 매핑 설정 <span class="sub">아이템 표시명 · 브랜드명 동의어 (localStorage 자동 저장)</span>
+      <span class="arrow">▼</span>
+    </div>
+    <div id="mapBody" style="display:none; margin-top:12px;">
+      <div class="map-grid">
+
+        <!-- 아이템 표시명 매핑 -->
+        <div class="map-section">
+          <h3>📌 아이템 표시명 매핑</h3>
+          <p class="desc">편성안 아이템명이 EPG에 다른 이름으로 나가는 경우 등록<br>예) 그레인온:양념/조미료/소스 → 카사베르디 레드와인비니거</p>
+          <table class="map-table">
+            <thead><tr><th>편성안 아이템명 (정확히 입력)</th><th>EPG 표시명</th><th></th></tr></thead>
+            <tbody id="itemMapBody"></tbody>
+          </table>
+          <button class="btn-add" onclick="addItemMapRow()">+ 행 추가</button>
+        </div>
+
+        <!-- 브랜드명 동의어 -->
+        <div class="map-section">
+          <h3>🔤 브랜드명 동의어</h3>
+          <p class="desc">편성안과 EPG에서 같은 브랜드를 다르게 표기하는 경우 등록<br>예) 닥터파이토 ↔ Dr.Phyto</p>
+          <table class="map-table">
+            <thead><tr><th>편성안 브랜드명</th><th>EPG 브랜드명</th><th></th></tr></thead>
+            <tbody id="brandMapBody"></tbody>
+          </table>
+          <button class="btn-add" onclick="addBrandMapRow()">+ 행 추가</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- 결과 -->
   <div class="card" id="results">
     <div class="placeholder">데이터를 붙여넣고 <b>규칙 검수 시작</b>을 눌러주세요.</div>
@@ -117,6 +169,108 @@ tr:hover td { background: #f9fafb; }
 </div>
 
 <script>
+/* ── 매핑 데이터 (localStorage) ────────── */
+let G_itemMap = [];  // [{sched: "그레인온:양념/조미료/소스", epg: "카사베르디 레드와인비니거"}, ...]
+let G_brandMap = []; // [{sched: "닥터파이토", epg: "Dr.Phyto"}, ...]
+
+function loadMappings() {
+  try {
+    G_itemMap  = JSON.parse(localStorage.getItem('epg_itemMap')  || '[]');
+    G_brandMap = JSON.parse(localStorage.getItem('epg_brandMap') || '[]');
+  } catch { G_itemMap = []; G_brandMap = []; }
+  renderItemMapTable();
+  renderBrandMapTable();
+}
+
+function saveMappings() {
+  // 빈 행 제거 후 저장
+  G_itemMap  = G_itemMap.filter(r => r.sched || r.epg);
+  G_brandMap = G_brandMap.filter(r => r.sched || r.epg);
+  localStorage.setItem('epg_itemMap',  JSON.stringify(G_itemMap));
+  localStorage.setItem('epg_brandMap', JSON.stringify(G_brandMap));
+}
+
+function toggleMap() {
+  const body = document.getElementById('mapBody');
+  const toggle = document.getElementById('mapToggle');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  toggle.classList.toggle('open', open);
+}
+
+/* 아이템 매핑 테이블 */
+function renderItemMapTable() {
+  const tbody = document.getElementById('itemMapBody');
+  tbody.innerHTML = G_itemMap.map((r, i) => `
+    <tr>
+      <td><input value="${escHtml(r.sched)}" oninput="G_itemMap[${i}].sched=this.value; saveMappings()" placeholder="예) 그레인온:양념/조미료/소스"></td>
+      <td><input value="${escHtml(r.epg)}"   oninput="G_itemMap[${i}].epg=this.value; saveMappings()"   placeholder="예) 카사베르디 레드와인비니거"></td>
+      <td><button class="btn-del" onclick="delItemMap(${i})">✕</button></td>
+    </tr>`).join('');
+}
+
+function addItemMapRow() {
+  G_itemMap.push({ sched: '', epg: '' });
+  renderItemMapTable();
+  // 마지막 행 첫 번째 입력에 포커스
+  const inputs = document.getElementById('itemMapBody').querySelectorAll('input');
+  if (inputs.length) inputs[inputs.length - 2].focus();
+}
+
+function delItemMap(i) {
+  G_itemMap.splice(i, 1);
+  saveMappings();
+  renderItemMapTable();
+}
+
+/* 브랜드 매핑 테이블 */
+function renderBrandMapTable() {
+  const tbody = document.getElementById('brandMapBody');
+  tbody.innerHTML = G_brandMap.map((r, i) => `
+    <tr>
+      <td><input value="${escHtml(r.sched)}" oninput="G_brandMap[${i}].sched=this.value; saveMappings()" placeholder="예) 닥터파이토"></td>
+      <td><input value="${escHtml(r.epg)}"   oninput="G_brandMap[${i}].epg=this.value; saveMappings()"   placeholder="예) Dr.Phyto"></td>
+      <td><button class="btn-del" onclick="delBrandMap(${i})">✕</button></td>
+    </tr>`).join('');
+}
+
+function addBrandMapRow() {
+  G_brandMap.push({ sched: '', epg: '' });
+  renderBrandMapTable();
+  const inputs = document.getElementById('brandMapBody').querySelectorAll('input');
+  if (inputs.length) inputs[inputs.length - 2].focus();
+}
+
+function delBrandMap(i) {
+  G_brandMap.splice(i, 1);
+  saveMappings();
+  renderBrandMapTable();
+}
+
+/* 매핑 적용 헬퍼 */
+function applyItemMap(schedItemName) {
+  // 편성안 아이템명으로 EPG 표시명 찾기
+  for (const m of G_itemMap) {
+    if (m.sched && normStr(m.sched) === normStr(schedItemName)) return m.epg;
+  }
+  return null;
+}
+
+function applyBrandMap(name) {
+  // 브랜드 동의어 치환 (양방향)
+  for (const m of G_brandMap) {
+    if (!m.sched || !m.epg) continue;
+    if (normStr(name).includes(normStr(m.sched))) return name.replace(new RegExp(m.sched, 'gi'), m.epg);
+    if (normStr(name).includes(normStr(m.epg)))   return name.replace(new RegExp(m.epg,   'gi'), m.sched);
+  }
+  return name;
+}
+
+/* ── 페이지 로드 ─────────────────────────── */
+window.addEventListener('DOMContentLoaded', () => {
+  loadMappings();
+});
+
 /* ── 시작 시 서버 API 키 확인 ───────────── */
 let G_serverHasKey = false;
 (async () => {
@@ -220,14 +374,18 @@ function parseSchedule(text) {
   return result;
 }
 
-/* ── 문자열 유사도 ──────────────────────── */
+/* ── 문자열 정규화 (띄어쓰기·특수문자 제거) ── */
+function normStr(s) {
+  return (s || '').replace(/[\s\[\]·,./\-()·（）]/g, '').toLowerCase();
+}
+
+/* ── 문자열 유사도 (띄어쓰기 무시) ──────── */
 function sim(a, b) {
+  a = normStr(a);
+  b = normStr(b);
   if (!a || !b) return 0;
-  a = a.replace(/[\[\]\s·,./\-()（）]/g, '').toLowerCase();
-  b = b.replace(/[\[\]\s·,./\-()（）]/g, '').toLowerCase();
   if (a === b) return 1;
   if (a.includes(b) || b.includes(a)) return 0.85;
-  // bigram similarity
   const bg = s => { const r = new Set(); for(let i=0;i<s.length-1;i++) r.add(s.slice(i,i+2)); return r; };
   const ba = bg(a), bb = bg(b);
   let inter = 0;
@@ -319,8 +477,8 @@ function runCheck() {
     if (!schedItems || schedItems.length === 0) continue;
     const s0 = schedItems[0]; // 첫 번째 항목 = 프로그램명 기준
 
-    // 프로그램명 비교
-    if (s0.program && e.program && e.program !== s0.program) {
+    // 프로그램명 비교 (띄어쓰기 무시)
+    if (s0.program && e.program && normStr(e.program) !== normStr(s0.program)) {
       G_errors.push({
         time: e.dt,
         check: '프로그램명 불일치',
@@ -333,21 +491,46 @@ function runCheck() {
       });
     }
 
-    // 다중 아이템인 경우: 편성안 각 아이템 브랜드명이 EPG PROGRAM에 포함되는지 확인
+    // 단일 아이템: 아이템 매핑 적용 후 EPG PROGRAM과 비교
+    if (schedItems.length === 1 && e.pgm_ref && s0.item_name) {
+      const mappedEpg = applyItemMap(s0.item_name); // 매핑 등록된 경우 EPG 표시명 반환
+      if (mappedEpg) {
+        // 매핑이 있으면 EPG PROGRAM이 매핑값과 일치하는지 검사
+        if (normStr(e.pgm_ref) !== normStr(mappedEpg) && sim(e.pgm_ref, mappedEpg) < 0.85) {
+          G_errors.push({
+            time: e.dt,
+            check: '아이템 표시명 불일치 (매핑)',
+            severity: 'error',
+            desc: `매핑 기준 EPG는 "${mappedEpg}" 이어야 함`,
+            epg_val: e.pgm_ref,
+            ref_val: mappedEpg,
+            sched_val: s0.item_name,
+            _epg: e,
+          });
+        }
+      }
+    }
+
+    // 다중 아이템: 편성안 각 아이템 브랜드명이 EPG에 포함되는지 확인
     if (schedItems.length > 1 && e.pgm_ref) {
       const missingItems = [];
       for (const si of schedItems) {
         if (!si.item_name) continue;
-        // 아이템명에서 브랜드명 추출 (콜론 앞 부분, 또는 전체)
-        const brand = si.item_name.split(':')[0].trim();
-        if (brand && sim(e.pgm_ref, brand) < 0.4) {
-          // EPG PROGRAM 전체 텍스트에서도 확인
-          const epgText = (e.item + ' ' + e.pgm_ref).toLowerCase();
-          const brandNorm = brand.toLowerCase().replace(/[\s\-_]/g, '');
-          const epgNorm = epgText.replace(/[\s\-_,]/g, '');
-          if (!epgNorm.includes(brandNorm.slice(0, Math.max(3, brandNorm.length - 2)))) {
-            missingItems.push(brand);
+        // 아이템 매핑 우선 적용
+        const mappedEpg = applyItemMap(si.item_name);
+        if (mappedEpg) {
+          if (sim(e.pgm_ref, mappedEpg) < 0.4 && !normStr(e.pgm_ref).includes(normStr(mappedEpg).slice(0, 4))) {
+            missingItems.push(`${si.item_name.split(':')[0]}(→${mappedEpg})`);
           }
+          continue;
+        }
+        // 브랜드명 동의어 치환 후 비교
+        const brand = si.item_name.split(':')[0].trim();
+        const brandMapped = applyBrandMap(brand);
+        const epgNorm = normStr(e.item + ' ' + e.pgm_ref);
+        const brandNorm = normStr(brandMapped);
+        if (brandNorm.length >= 2 && !epgNorm.includes(brandNorm.slice(0, Math.max(2, brandNorm.length - 1)))) {
+          missingItems.push(brand);
         }
       }
       if (missingItems.length > 0) {
