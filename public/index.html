@@ -60,6 +60,7 @@ tr:hover td { background: #f9fafb; }
 .badge-error { background: #fee2e2; color: #dc2626; }
 .badge-warn { background: #fef3c7; color: #b45309; }
 .badge-info { background: #dbeafe; color: #1d4ed8; }
+.badge-dup { background: #1e2d4d; color: #fff; }
 
 .val-bad { background: #fee2e2; padding: 1px 5px; border-radius: 3px; }
 .val-good { background: #d1fae5; padding: 1px 5px; border-radius: 3px; }
@@ -104,8 +105,15 @@ tr:hover td { background: #f9fafb; }
   <!-- 입력 -->
   <div class="grid2">
     <div class="card">
-      <div class="card-title">📋 닐슨 EPG 데이터 <span class="sub">전체 시트 복붙 (헤더 포함)</span></div>
-      <textarea id="epgData" placeholder="EPG 데이터 여기에 붙여넣기&#10;&#10;첫 줄: 닐슨 데이터 (타이틀)&#10;둘째 줄: 방송일시  시작시간  프로그램명  ...&#10;이후: 데이터 행들"></textarea>
+      <div class="card-title">📋 닐슨 EPG 데이터 <span class="sub">구글시트 URL 또는 직접 붙여넣기</span></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <input id="sheetUrl" type="text" placeholder="구글시트 URL 붙여넣기 (공유 링크) — 입력하면 자동 불러오기"
+          style="flex:1;border:1px solid #d1d5db;border-radius:6px;padding:7px 10px;font-size:12px;"
+          onkeydown="if(event.key==='Enter') fetchSheet()">
+        <button class="btn btn-primary" style="white-space:nowrap;padding:7px 14px;" onclick="fetchSheet()">불러오기</button>
+      </div>
+      <textarea id="epgData" placeholder="또는 여기에 직접 붙여넣기&#10;&#10;첫 줄: 닐슨 데이터 (타이틀)&#10;둘째 줄: 방송일시  시작시간  프로그램명  ..."></textarea>
+      <div id="sheetStatus" style="font-size:11px;margin-top:4px;color:#9ca3af;"></div>
     </div>
     <div class="card">
       <div class="card-title">📄 아이템 편성안 <span class="sub">전체 시트 복붙 (헤더 2행 포함)</span></div>
@@ -266,6 +274,30 @@ function applyBrandMap(name) {
   return name;
 }
 
+/* ── 구글시트 불러오기 ───────────────────── */
+async function fetchSheet() {
+  const url = document.getElementById('sheetUrl').value.trim();
+  if (!url) return;
+  const status = document.getElementById('sheetStatus');
+  status.textContent = '⟳ 불러오는 중...';
+  status.style.color = '#7c3aed';
+  try {
+    const resp = await fetch('/api/fetch-sheet?url=' + encodeURIComponent(url));
+    if (!resp.ok) {
+      const e = await resp.json();
+      throw new Error(e.error || resp.statusText);
+    }
+    const text = await resp.text();
+    document.getElementById('epgData').value = text;
+    const lines = text.trim().split('\n').length;
+    status.textContent = `✓ ${lines}행 불러옴`;
+    status.style.color = '#059669';
+  } catch (err) {
+    status.textContent = '✗ ' + err.message;
+    status.style.color = '#dc2626';
+  }
+}
+
 /* ── 페이지 로드 ─────────────────────────── */
 window.addEventListener('DOMContentLoaded', () => {
   loadMappings();
@@ -413,7 +445,6 @@ function runCheck() {
   }
 
   /* ── CHECK 0: EPG 방송일시 중복 ─────── */
-  // 같은 방송일시가 EPG에 2번 이상 나오면 절대 안됨
   const epgDtCount = new Map();
   for (const e of G_epg) {
     epgDtCount.set(e.dt, (epgDtCount.get(e.dt) || 0) + 1);
@@ -422,9 +453,9 @@ function runCheck() {
     if (cnt > 1) {
       G_errors.push({
         time: dt,
-        check: 'EPG 방송일시 중복',
-        severity: 'error',
-        desc: `같은 방송일시가 EPG에 ${cnt}번 존재 (1개만 허용)`,
+        check: '🚨 중복 오류',
+        severity: 'dup',
+        desc: `방송일시 ${dt} 가 EPG에 ${cnt}줄 존재 → EPG 파일 직접 수정 필요`,
         epg_val: `${cnt}건 중복`,
         ref_val: '1건',
         sched_val: '',
@@ -432,16 +463,16 @@ function runCheck() {
     }
   }
 
-  /* ── CHECK 1: EPG 아이템명 vs PROGRAM ── */
+  /* ── CHECK 1: EPG 아이템명 vs PROGRAM (완전히 다른 경우만 오류) ── */
   for (const e of G_epg) {
     if (!e.item || !e.pgm_ref) continue;
     const s = sim(e.item, e.pgm_ref);
-    if (s < 0.95) {
+    if (s < 0.5) {
       G_errors.push({
         time: e.dt,
         check: 'EPG 아이템명 ≠ PROGRAM',
-        severity: s < 0.5 ? 'error' : 'warn',
-        desc: s < 0.5 ? '완전히 다른 내용 입력됨' : '내용 일부 다름',
+        severity: 'error',
+        desc: '아이템명과 PROGRAM 필드가 완전히 다른 내용',
         epg_val: e.item,
         ref_val: e.pgm_ref,
         sched_val: '',
@@ -619,23 +650,30 @@ function runCheck() {
 
   document.getElementById('aiBtn').disabled = false;
   renderResults();
+
+  // API 키 있으면 오타 검수 자동 실행
+  const autoKey = G_serverHasKey ? '_server_' : document.getElementById('apiKey').value.trim();
+  if (autoKey) {
+    setTimeout(() => runAICheck(true), 300);
+  }
 }
 
 /* ── 렌더링 ─────────────────────────────── */
 function renderResults() {
   const cont = document.getElementById('results');
+  const dups   = G_errors.filter(e => e.severity === 'dup');
   const errors = G_errors.filter(e => e.severity === 'error');
   const warns  = G_errors.filter(e => e.severity === 'warn');
 
   let filtered = G_errors;
-  if (G_filter === 'error') filtered = errors;
-  else if (G_filter === 'warn') filtered = warns;
-  else if (G_filter === 'ok') filtered = [];
+  if (G_filter === 'dup')   filtered = dups;
+  else if (G_filter === 'error') filtered = errors;
+  else if (G_filter === 'warn')  filtered = warns;
 
   const tableRows = filtered.map(r => `
     <tr>
       <td style="white-space:nowrap; font-family:Consolas,monospace; font-size:11px; color:#6b7280;">${r.time}</td>
-      <td><span class="badge badge-${r.severity === 'error' ? 'error' : 'warn'}">${r.check}</span></td>
+      <td><span class="badge badge-${r.severity === 'dup' ? 'dup' : r.severity === 'error' ? 'error' : 'warn'}">${r.check}</span></td>
       <td>${r.desc}</td>
       <td><span class="val-bad">${escHtml(r.epg_val)}</span></td>
       <td><span class="val-good">${escHtml(r.ref_val)}</span></td>
@@ -646,13 +684,15 @@ function renderResults() {
     <div class="summary">
       <span class="chip chip-default">EPG ${G_epg.length}건</span>
       <span class="chip chip-default">편성안 ${G_sched.length}건</span>
+      ${dups.length > 0 ? `<span class="chip" style="background:#1e2d4d;color:#fff;">🚨 중복오류 ${dups.length}건</span>` : ''}
       <span class="chip chip-error">오류 ${errors.length}건</span>
       <span class="chip chip-warn">경고 ${warns.length}건</span>
-      ${errors.length === 0 && warns.length === 0 ? '<span class="chip chip-ok">✓ 이상 없음</span>' : ''}
+      ${dups.length === 0 && errors.length === 0 && warns.length === 0 ? '<span class="chip chip-ok">✓ 이상 없음</span>' : ''}
     </div>
 
     <div class="filter-row">
       <button class="fbtn ${G_filter==='all'?'on':''}" onclick="setFilter('all')">전체 (${G_errors.length})</button>
+      ${dups.length > 0 ? `<button class="fbtn ${G_filter==='dup'?'on':''}" onclick="setFilter('dup')">🚨 중복오류 (${dups.length})</button>` : ''}
       <button class="fbtn ${G_filter==='error'?'on':''}" onclick="setFilter('error')">🔴 오류만 (${errors.length})</button>
       <button class="fbtn ${G_filter==='warn'?'on':''}" onclick="setFilter('warn')">🟡 경고만 (${warns.length})</button>
     </div>
@@ -683,10 +723,10 @@ function escHtml(s) {
 }
 
 /* ── AI 검수 ─────────────────────────────── */
-async function runAICheck() {
+async function runAICheck(auto = false) {
   const apiKey = G_serverHasKey ? '' : document.getElementById('apiKey').value.trim();
-  if (!G_serverHasKey && !apiKey) { alert('API 키를 입력해주세요.'); return; }
-  if (G_epg.length === 0) { alert('먼저 규칙 검수를 실행해주세요.'); return; }
+  if (!G_serverHasKey && !apiKey) { if (!auto) alert('API 키를 입력해주세요.'); return; }
+  if (G_epg.length === 0) { if (!auto) alert('먼저 규칙 검수를 실행해주세요.'); return; }
 
   const schedMap = new Map();
   for (const s of G_sched) {
