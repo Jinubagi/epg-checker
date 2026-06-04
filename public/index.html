@@ -247,11 +247,31 @@ function runCheck() {
 
   G_errors = [];
 
-  /* ── 편성안 맵 (start_dt → 항목 배열) ── */
+  /* ── 편성안 맵 (start_dt → 항목 배열, 순서대로) ── */
   const schedMap = new Map();
   for (const s of G_sched) {
     if (!schedMap.has(s.start_dt)) schedMap.set(s.start_dt, []);
     schedMap.get(s.start_dt).push(s);
+  }
+
+  /* ── CHECK 0: EPG 방송일시 중복 ─────── */
+  // 같은 방송일시가 EPG에 2번 이상 나오면 절대 안됨
+  const epgDtCount = new Map();
+  for (const e of G_epg) {
+    epgDtCount.set(e.dt, (epgDtCount.get(e.dt) || 0) + 1);
+  }
+  for (const [dt, cnt] of epgDtCount) {
+    if (cnt > 1) {
+      G_errors.push({
+        time: dt,
+        check: 'EPG 방송일시 중복',
+        severity: 'error',
+        desc: `같은 방송일시가 EPG에 ${cnt}번 존재 (1개만 허용)`,
+        epg_val: `${cnt}건 중복`,
+        ref_val: '1건',
+        sched_val: '',
+      });
+    }
   }
 
   /* ── CHECK 1: EPG 아이템명 vs PROGRAM ── */
@@ -259,11 +279,10 @@ function runCheck() {
     if (!e.item || !e.pgm_ref) continue;
     const s = sim(e.item, e.pgm_ref);
     if (s < 0.95) {
-      const severe = s < 0.5 ? 'error' : 'warn';
       G_errors.push({
         time: e.dt,
         check: 'EPG 아이템명 ≠ PROGRAM',
-        severity: severe,
+        severity: s < 0.5 ? 'error' : 'warn',
         desc: s < 0.5 ? '완전히 다른 내용 입력됨' : '내용 일부 다름',
         epg_val: e.item,
         ref_val: e.pgm_ref,
@@ -290,23 +309,59 @@ function runCheck() {
     }
   }
 
-  /* ── CHECK 3: EPG vs 편성안 프로그램명 ── */
+  /* ── CHECK 3: EPG vs 편성안 (같은 시간 기준) ──
+     편성안은 같은 시간에 여러 아이템(순서 1,2,3...)이 있을 수 있음
+     EPG는 해당 시간에 한 줄로 여러 아이템을 합쳐서 표현함
+     → 프로그램명은 첫 번째 항목 기준으로 비교
+     → 아이템명은 편성안 전체 브랜드명이 EPG PROGRAM에 포함되는지 비교 ── */
   for (const e of G_epg) {
     const schedItems = schedMap.get(e.dt);
-    if (!schedItems) continue;
-    const s0 = schedItems[0];
-    if (!s0.program || !e.program) continue;
-    if (e.program !== s0.program) {
+    if (!schedItems || schedItems.length === 0) continue;
+    const s0 = schedItems[0]; // 첫 번째 항목 = 프로그램명 기준
+
+    // 프로그램명 비교
+    if (s0.program && e.program && e.program !== s0.program) {
       G_errors.push({
         time: e.dt,
-        check: '프로그램명 불일치 (편성안)',
+        check: '프로그램명 불일치',
         severity: 'error',
-        desc: `편성안: "${s0.program}" / EPG: "${e.program}"`,
+        desc: `편성안: "${s0.program}" → EPG: "${e.program}"`,
         epg_val: e.program,
         ref_val: s0.program,
         sched_val: s0.program,
         _epg: e,
       });
+    }
+
+    // 다중 아이템인 경우: 편성안 각 아이템 브랜드명이 EPG PROGRAM에 포함되는지 확인
+    if (schedItems.length > 1 && e.pgm_ref) {
+      const missingItems = [];
+      for (const si of schedItems) {
+        if (!si.item_name) continue;
+        // 아이템명에서 브랜드명 추출 (콜론 앞 부분, 또는 전체)
+        const brand = si.item_name.split(':')[0].trim();
+        if (brand && sim(e.pgm_ref, brand) < 0.4) {
+          // EPG PROGRAM 전체 텍스트에서도 확인
+          const epgText = (e.item + ' ' + e.pgm_ref).toLowerCase();
+          const brandNorm = brand.toLowerCase().replace(/[\s\-_]/g, '');
+          const epgNorm = epgText.replace(/[\s\-_,]/g, '');
+          if (!epgNorm.includes(brandNorm.slice(0, Math.max(3, brandNorm.length - 2)))) {
+            missingItems.push(brand);
+          }
+        }
+      }
+      if (missingItems.length > 0) {
+        G_errors.push({
+          time: e.dt,
+          check: '다중 아이템 누락 의심',
+          severity: 'warn',
+          desc: `편성안 아이템 중 EPG에 없을 수 있음: ${missingItems.join(', ')}`,
+          epg_val: e.pgm_ref,
+          ref_val: schedItems.map(s => s.item_name.split(':')[0]).join(', '),
+          sched_val: `${schedItems.length}개 아이템`,
+          _epg: e,
+        });
+      }
     }
   }
 
@@ -338,7 +393,6 @@ function runCheck() {
     if (!cur.etime || !nxt.stime) continue;
     const curDate = cur.dt.split(' ')[0];
     const nxtDate = nxt.dt.split(' ')[0];
-    // 같은 날짜 내에서만 연속성 체크
     if (curDate === nxtDate && cur.etime !== nxt.stime) {
       G_errors.push({
         time: cur.dt,
@@ -354,21 +408,23 @@ function runCheck() {
   }
 
   /* ── CHECK 6: 편성안에 있지만 EPG 없는 항목 ── */
+  // 편성안 다중 아이템은 같은 시간에 하나만 EPG에 있으면 OK → start_dt 단위로 체크
   const epgDtSet = new Set(G_epg.map(e => e.dt));
   const seenDt = new Set();
   for (const s of G_sched) {
     if (seenDt.has(s.start_dt)) continue;
     seenDt.add(s.start_dt);
     if (!epgDtSet.has(s.start_dt)) {
-      if (!s.product_name) continue; // 빈 행 스킵
+      if (!s.product_name) continue;
+      const allItems = schedMap.get(s.start_dt) || [];
       G_errors.push({
         time: s.start_dt,
         check: 'EPG 미등록',
         severity: 'error',
-        desc: `편성안에 있으나 EPG에 없음`,
+        desc: `편성안에 있으나 EPG에 없음 (${allItems.length}개 아이템)`,
         epg_val: '(없음)',
         ref_val: '',
-        sched_val: s.program + ' / ' + s.product_name,
+        sched_val: s.program + ' / ' + allItems.map(a => a.product_name).filter(Boolean).join(', '),
         _epg: null,
       });
     }
