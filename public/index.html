@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EPG 검수 도구</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; background: #f0f2f5; min-height: 100vh; }
+
+.header { background: #1e2d4d; color: white; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 18px; font-weight: 700; }
+.header p { font-size: 12px; opacity: 0.6; }
+
+.container { max-width: 1600px; margin: 0 auto; padding: 16px; }
+
+.card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 14px; }
+.card-title { font-size: 13px; font-weight: 700; color: #1e2d4d; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.card-title .sub { font-weight: 400; color: #888; font-size: 11px; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+textarea { width: 100%; height: 220px; border: 1px solid #d1d5db; border-radius: 6px; padding: 8px; font-size: 11px; font-family: 'Consolas', monospace; resize: vertical; line-height: 1.5; }
+textarea:focus { outline: none; border-color: #1e2d4d; }
+
+.settings-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.fg { display: flex; flex-direction: column; gap: 4px; }
+.fg label { font-size: 11px; color: #555; }
+.fg input { border: 1px solid #d1d5db; border-radius: 6px; padding: 7px 12px; font-size: 13px; width: 300px; }
+
+.btn { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+.btn-primary { background: #1e2d4d; color: white; }
+.btn-primary:hover { background: #2d4273; }
+.btn-ai { background: #7c3aed; color: white; }
+.btn-ai:hover { background: #6d28d9; }
+.btn-ai:disabled { background: #c4b5fd; cursor: not-allowed; }
+
+/* Summary */
+.summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+.chip { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.chip-default { background: #e5e7eb; color: #374151; }
+.chip-error { background: #fee2e2; color: #dc2626; }
+.chip-warn { background: #fef3c7; color: #b45309; }
+.chip-ok { background: #d1fae5; color: #065f46; }
+.chip-info { background: #dbeafe; color: #1d4ed8; }
+
+/* Filter */
+.filter-row { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+.fbtn { padding: 4px 12px; border: 1px solid #d1d5db; border-radius: 20px; background: white; cursor: pointer; font-size: 12px; font-family: inherit; }
+.fbtn.on { background: #1e2d4d; color: white; border-color: #1e2d4d; }
+.fbtn:hover:not(.on) { background: #f3f4f6; }
+
+/* Table */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
+th { background: #f9fafb; padding: 8px 10px; text-align: left; border-bottom: 2px solid #e5e7eb; font-size: 11px; color: #6b7280; white-space: nowrap; font-weight: 700; }
+td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; vertical-align: top; word-break: break-all; }
+tr:hover td { background: #f9fafb; }
+
+.badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.badge-error { background: #fee2e2; color: #dc2626; }
+.badge-warn { background: #fef3c7; color: #b45309; }
+.badge-info { background: #dbeafe; color: #1d4ed8; }
+
+.val-bad { background: #fee2e2; padding: 1px 5px; border-radius: 3px; }
+.val-good { background: #d1fae5; padding: 1px 5px; border-radius: 3px; }
+
+/* AI result */
+.ai-box { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 14px; margin-top: 14px; font-size: 12px; white-space: pre-wrap; line-height: 1.7; }
+.ai-box h3 { font-size: 13px; color: #7c3aed; margin-bottom: 8px; }
+
+.placeholder { color: #9ca3af; font-size: 13px; padding: 30px; text-align: center; }
+.loading { color: #7c3aed; font-size: 13px; padding: 20px; text-align: center; }
+.notice { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #78350f; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>📺 EPG 검수 도구</h1>
+    <p>편성안 기준 EPG 정확성 검수 · AI 오타 검수</p>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 입력 -->
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">📋 닐슨 EPG 데이터 <span class="sub">전체 시트 복붙 (헤더 포함)</span></div>
+      <textarea id="epgData" placeholder="EPG 데이터 여기에 붙여넣기&#10;&#10;첫 줄: 닐슨 데이터 (타이틀)&#10;둘째 줄: 방송일시  시작시간  프로그램명  ...&#10;이후: 데이터 행들"></textarea>
+    </div>
+    <div class="card">
+      <div class="card-title">📄 아이템 편성안 <span class="sub">전체 시트 복붙 (헤더 2행 포함)</span></div>
+      <textarea id="scheduleData" placeholder="편성안 데이터 여기에 붙여넣기&#10;&#10;첫 줄: No.  요일  프로그램  프로그램  ... (대분류 헤더)&#10;둘째 줄: No.  요일  방송시작일시  방송종료일시  ... (실제 헤더)&#10;이후: 데이터 행들"></textarea>
+    </div>
+  </div>
+
+  <!-- 설정 -->
+  <div class="card">
+    <div class="settings-row">
+      <div class="fg" id="apiKeyGroup">
+        <label>Anthropic API 키 <span style="color:#9ca3af">(선택 · AI 오타 검수용 · sk-ant-...)</span></label>
+        <input type="password" id="apiKey" placeholder="API 키 없이도 규칙 기반 검수는 가능합니다">
+      </div>
+      <span id="apiKeyStatus" style="display:none; font-size:12px; color:#059669;">✓ API 키 서버에 저장됨</span>
+      <button class="btn btn-primary" onclick="runCheck()">▶ 규칙 검수 시작</button>
+      <button class="btn btn-ai" id="aiBtn" onclick="runAICheck()" disabled>✦ AI 오타 검수</button>
+    </div>
+  </div>
+
+  <!-- 결과 -->
+  <div class="card" id="results">
+    <div class="placeholder">데이터를 붙여넣고 <b>규칙 검수 시작</b>을 눌러주세요.</div>
+  </div>
+
+</div>
+
+<script>
+/* ── 시작 시 서버 API 키 확인 ───────────── */
+let G_serverHasKey = false;
+(async () => {
+  try {
+    const r = await fetch('/api/config');
+    const d = await r.json();
+    if (d.hasApiKey) {
+      G_serverHasKey = true;
+      document.getElementById('apiKeyGroup').style.display = 'none';
+      document.getElementById('apiKeyStatus').style.display = 'inline';
+    }
+  } catch {}
+})();
+
+/* ── 전역 상태 ─────────────────────────────── */
+let G_epg = [];
+let G_sched = [];
+let G_errors = [];
+let G_filter = 'all';
+
+/* ── 유틸 ────────────────────────────────── */
+function normTime(t) {
+  if (!t) return '';
+  t = t.trim().replace(/[^0-9:]/g, '');
+  const p = t.split(':');
+  if (p.length === 2) return p[0].padStart(2,'0') + ':' + p[1].padStart(2,'0');
+  return t;
+}
+
+function normDT(dt) {
+  if (!dt) return '';
+  dt = dt.trim();
+  const sp = dt.indexOf(' ');
+  if (sp > 0) return dt.slice(0, sp) + ' ' + normTime(dt.slice(sp+1));
+  return dt;
+}
+
+function parseTSV(text) {
+  return text.split('\n').map(l => l.split('\t').map(c => c.trim()));
+}
+
+/* ── EPG 파싱 ────────────────────────────── */
+function parseEPG(text) {
+  const rows = parseTSV(text);
+  let hdr = -1;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    if (rows[i].some(c => c === '방송일시')) { hdr = i; break; }
+  }
+  if (hdr === -1) { alert('EPG 헤더를 찾을 수 없습니다.\n"방송일시" 컬럼이 있는지 확인해주세요.'); return null; }
+
+  const result = [];
+  for (let i = hdr + 1; i < rows.length; i++) {
+    const c = rows[i];
+    if (c.length < 15) continue;
+    if (!c[0] || !c[0].match(/^\d{4}-\d{2}-\d{2}/)) continue;
+
+    result.push({
+      _row: i + 1,
+      dt:       normDT(c[0]),       // 방송일시
+      stime:    normTime(c[1]),     // 시작시간
+      program:  c[2],               // 프로그램명
+      item:     c[4],               // 아이템명 (수동입력)
+      rerun:    c[6],               // 재방(Y/N)
+      live:     c[7],               // 생방
+      pgm_ref:  c[14],              // PROGRAM (기준)
+      type1:    c[15],              // TYPE1
+      etime:    normTime(c[20]),    // ETIME
+    });
+  }
+  return result;
+}
+
+/* ── 편성안 파싱 ─────────────────────────── */
+function parseSchedule(text) {
+  const rows = parseTSV(text);
+  let hdr = -1;
+  for (let i = 0; i < Math.min(rows.length, 5); i++) {
+    if (rows[i].some(c => c === '방송시작일시')) { hdr = i; break; }
+  }
+  if (hdr === -1) { alert('편성안 헤더를 찾을 수 없습니다.\n"방송시작일시" 컬럼이 있는지 확인해주세요.'); return null; }
+
+  const result = [];
+  for (let i = hdr + 1; i < rows.length; i++) {
+    const c = rows[i];
+    if (c.length < 20) continue;
+    if (!c[2] || !c[2].match(/^\d{4}-\d{2}-\d{2}/)) continue;
+
+    result.push({
+      _row: i + 1,
+      no:       c[0],
+      start_dt: normDT(c[2]),       // 방송시작일시
+      end_dt:   normDT(c[3]),       // 방송종료일시
+      program:  c[8],               // 프로그램명
+      bcast_type: c[9],             // 방송유형
+      order:    c[16],              // 순서
+      item_name:  c[18],            // 아이템명
+      product_code: c[19],          // 상품코드
+      product_name: c[20],          // 상품명
+    });
+  }
+  return result;
+}
+
+/* ── 문자열 유사도 ──────────────────────── */
+function sim(a, b) {
+  if (!a || !b) return 0;
+  a = a.replace(/[\[\]\s·,./\-()（）]/g, '').toLowerCase();
+  b = b.replace(/[\[\]\s·,./\-()（）]/g, '').toLowerCase();
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.85;
+  // bigram similarity
+  const bg = s => { const r = new Set(); for(let i=0;i<s.length-1;i++) r.add(s.slice(i,i+2)); return r; };
+  const ba = bg(a), bb = bg(b);
+  let inter = 0;
+  for (const g of ba) if (bb.has(g)) inter++;
+  return inter * 2 / (ba.size + bb.size || 1);
+}
+
+/* ── 검수 로직 ───────────────────────────── */
+function runCheck() {
+  const epgTxt = document.getElementById('epgData').value;
+  const schedTxt = document.getElementById('scheduleData').value;
+  if (!epgTxt.trim() || !schedTxt.trim()) { alert('EPG와 편성안 데이터를 모두 붙여넣어 주세요.'); return; }
+
+  G_epg = parseEPG(epgTxt);
+  G_sched = parseSchedule(schedTxt);
+  if (!G_epg || !G_sched) return;
+
+  G_errors = [];
+
+  /* ── 편성안 맵 (start_dt → 항목 배열) ── */
+  const schedMap = new Map();
+  for (const s of G_sched) {
+    if (!schedMap.has(s.start_dt)) schedMap.set(s.start_dt, []);
+    schedMap.get(s.start_dt).push(s);
+  }
+
+  /* ── CHECK 1: EPG 아이템명 vs PROGRAM ── */
+  for (const e of G_epg) {
+    if (!e.item || !e.pgm_ref) continue;
+    const s = sim(e.item, e.pgm_ref);
+    if (s < 0.95) {
+      const severe = s < 0.5 ? 'error' : 'warn';
+      G_errors.push({
+        time: e.dt,
+        check: 'EPG 아이템명 ≠ PROGRAM',
+        severity: severe,
+        desc: s < 0.5 ? '완전히 다른 내용 입력됨' : '내용 일부 다름',
+        epg_val: e.item,
+        ref_val: e.pgm_ref,
+        sched_val: '',
+        _epg: e,
+      });
+    }
+  }
+
+  /* ── CHECK 2: EPG 프로그램명 vs TYPE1 ── */
+  for (const e of G_epg) {
+    if (!e.program || !e.type1) continue;
+    if (e.program !== e.type1) {
+      G_errors.push({
+        time: e.dt,
+        check: '프로그램명 vs TYPE1 불일치',
+        severity: 'error',
+        desc: `프로그램명 컬럼과 TYPE1 컬럼 값이 다름`,
+        epg_val: e.program,
+        ref_val: e.type1,
+        sched_val: '',
+        _epg: e,
+      });
+    }
+  }
+
+  /* ── CHECK 3: EPG vs 편성안 프로그램명 ── */
+  for (const e of G_epg) {
+    const schedItems = schedMap.get(e.dt);
+    if (!schedItems) continue;
+    const s0 = schedItems[0];
+    if (!s0.program || !e.program) continue;
+    if (e.program !== s0.program) {
+      G_errors.push({
+        time: e.dt,
+        check: '프로그램명 불일치 (편성안)',
+        severity: 'error',
+        desc: `편성안: "${s0.program}" / EPG: "${e.program}"`,
+        epg_val: e.program,
+        ref_val: s0.program,
+        sched_val: s0.program,
+        _epg: e,
+      });
+    }
+  }
+
+  /* ── CHECK 4: 재방/생방 구분 ────────── */
+  const RERUN_TYPES = new Set(['순환', '재방송(생방)', '순환(재방)']);
+  for (const e of G_epg) {
+    const schedItems = schedMap.get(e.dt);
+    if (!schedItems) continue;
+    const s0 = schedItems[0];
+    const schedIsRerun = RERUN_TYPES.has(s0.bcast_type);
+    const epgIsRerun = e.rerun === 'Y';
+    if (schedIsRerun !== epgIsRerun) {
+      G_errors.push({
+        time: e.dt,
+        check: '재방 구분 오류',
+        severity: 'warn',
+        desc: `편성안 방송유형: ${s0.bcast_type} → EPG 재방: ${e.rerun}`,
+        epg_val: `재방(${e.rerun})`,
+        ref_val: schedIsRerun ? '재방(Y)' : '재방(N)',
+        sched_val: s0.bcast_type,
+        _epg: e,
+      });
+    }
+  }
+
+  /* ── CHECK 5: 시간 연속성 ───────────── */
+  for (let i = 0; i < G_epg.length - 1; i++) {
+    const cur = G_epg[i], nxt = G_epg[i+1];
+    if (!cur.etime || !nxt.stime) continue;
+    const curDate = cur.dt.split(' ')[0];
+    const nxtDate = nxt.dt.split(' ')[0];
+    // 같은 날짜 내에서만 연속성 체크
+    if (curDate === nxtDate && cur.etime !== nxt.stime) {
+      G_errors.push({
+        time: cur.dt,
+        check: '시간 불연속',
+        severity: 'warn',
+        desc: `현재 ETIME(${cur.etime}) ≠ 다음 STIME(${nxt.stime})`,
+        epg_val: cur.etime,
+        ref_val: nxt.stime,
+        sched_val: '',
+        _epg: cur,
+      });
+    }
+  }
+
+  /* ── CHECK 6: 편성안에 있지만 EPG 없는 항목 ── */
+  const epgDtSet = new Set(G_epg.map(e => e.dt));
+  const seenDt = new Set();
+  for (const s of G_sched) {
+    if (seenDt.has(s.start_dt)) continue;
+    seenDt.add(s.start_dt);
+    if (!epgDtSet.has(s.start_dt)) {
+      if (!s.product_name) continue; // 빈 행 스킵
+      G_errors.push({
+        time: s.start_dt,
+        check: 'EPG 미등록',
+        severity: 'error',
+        desc: `편성안에 있으나 EPG에 없음`,
+        epg_val: '(없음)',
+        ref_val: '',
+        sched_val: s.program + ' / ' + s.product_name,
+        _epg: null,
+      });
+    }
+  }
+
+  // 시간순 정렬
+  G_errors.sort((a, b) => a.time.localeCompare(b.time));
+  G_filter = 'all';
+
+  document.getElementById('aiBtn').disabled = false;
+  renderResults();
+}
+
+/* ── 렌더링 ─────────────────────────────── */
+function renderResults() {
+  const cont = document.getElementById('results');
+  const errors = G_errors.filter(e => e.severity === 'error');
+  const warns  = G_errors.filter(e => e.severity === 'warn');
+
+  let filtered = G_errors;
+  if (G_filter === 'error') filtered = errors;
+  else if (G_filter === 'warn') filtered = warns;
+  else if (G_filter === 'ok') filtered = [];
+
+  const tableRows = filtered.map(r => `
+    <tr>
+      <td style="white-space:nowrap; font-family:Consolas,monospace; font-size:11px; color:#6b7280;">${r.time}</td>
+      <td><span class="badge badge-${r.severity === 'error' ? 'error' : 'warn'}">${r.check}</span></td>
+      <td>${r.desc}</td>
+      <td><span class="val-bad">${escHtml(r.epg_val)}</span></td>
+      <td><span class="val-good">${escHtml(r.ref_val)}</span></td>
+      <td style="color:#9ca3af; font-size:11px;">${escHtml(r.sched_val)}</td>
+    </tr>`).join('');
+
+  cont.innerHTML = `
+    <div class="summary">
+      <span class="chip chip-default">EPG ${G_epg.length}건</span>
+      <span class="chip chip-default">편성안 ${G_sched.length}건</span>
+      <span class="chip chip-error">오류 ${errors.length}건</span>
+      <span class="chip chip-warn">경고 ${warns.length}건</span>
+      ${errors.length === 0 && warns.length === 0 ? '<span class="chip chip-ok">✓ 이상 없음</span>' : ''}
+    </div>
+
+    <div class="filter-row">
+      <button class="fbtn ${G_filter==='all'?'on':''}" onclick="setFilter('all')">전체 (${G_errors.length})</button>
+      <button class="fbtn ${G_filter==='error'?'on':''}" onclick="setFilter('error')">🔴 오류만 (${errors.length})</button>
+      <button class="fbtn ${G_filter==='warn'?'on':''}" onclick="setFilter('warn')">🟡 경고만 (${warns.length})</button>
+    </div>
+
+    ${filtered.length === 0
+      ? '<p style="color:#9ca3af;padding:20px 0;text-align:center;">해당하는 항목이 없습니다.</p>'
+      : `<div class="tbl-wrap"><table>
+          <thead><tr>
+            <th>방송일시</th><th>검수 항목</th><th>내용</th>
+            <th>EPG 값 (문제)</th><th>정상 값</th><th>편성안</th>
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table></div>`
+    }
+
+    <div id="aiResult"></div>
+  `;
+}
+
+function setFilter(f) {
+  G_filter = f;
+  renderResults();
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ── AI 검수 ─────────────────────────────── */
+async function runAICheck() {
+  const apiKey = G_serverHasKey ? '' : document.getElementById('apiKey').value.trim();
+  if (!G_serverHasKey && !apiKey) { alert('API 키를 입력해주세요.'); return; }
+  if (G_epg.length === 0) { alert('먼저 규칙 검수를 실행해주세요.'); return; }
+
+  const schedMap = new Map();
+  for (const s of G_sched) {
+    if (!schedMap.has(s.start_dt)) schedMap.set(s.start_dt, []);
+    schedMap.get(s.start_dt).push(s);
+  }
+
+  const items = G_epg.map(e => {
+    const ss = schedMap.get(e.dt) || [];
+    return {
+      time: e.dt,
+      epgItem: e.item || '',
+      epgProgram: e.pgm_ref || '',
+      schedule: ss.map(s => s.product_name).filter(Boolean).join(', ') || '(편성안 없음)',
+    };
+  });
+
+  const aiDiv = document.getElementById('aiResult');
+  aiDiv.innerHTML = '<div class="loading">⟳ AI 검수 중... (Haiku 모델, 배치 처리)</div>';
+
+  const BATCH = 30;
+  const results = [];
+
+  for (let i = 0; i < items.length; i += BATCH) {
+    const batch = items.slice(i, i + BATCH);
+    aiDiv.innerHTML = `<div class="loading">⟳ AI 검수 중... (${Math.min(i+BATCH, items.length)} / ${items.length})</div>`;
+    try {
+      const resp = await fetch('/api/check-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: batch, apiKey }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.error);
+      }
+      const data = await resp.json();
+      results.push(`▶ ${i+1}~${Math.min(i+BATCH, items.length)}번째\n${data.result}`);
+    } catch (err) {
+      aiDiv.innerHTML = `<div class="ai-box" style="background:#fee2e2;border-color:#fca5a5;">
+        <h3>⚠ AI 검수 오류</h3>${err.message}<br><br>
+        서버가 실행 중인지 확인하세요: <code>node server.js</code>
+      </div>`;
+      return;
+    }
+  }
+
+  aiDiv.innerHTML = `<div class="ai-box">
+    <h3>✦ AI 오타·불일치 검수 결과 (claude-haiku)</h3>
+    ${escHtml(results.join('\n\n' + '─'.repeat(40) + '\n\n'))}
+  </div>`;
+}
+</script>
+</body>
+</html>
